@@ -9,7 +9,7 @@ There is no account, no cloud, and no analytics. The app does not make network c
 Clone onto a normal local disk. Do not put the project in iCloud Drive, in Documents if that folder is synced, or in a Grok folder. Flutter's build tools fail on those paths.
 
 ```bash
-git clone <this-repo> fitness-tracker
+git clone https://github.com/Lewis-AI-Collab/fitness-tracker.git fitness-tracker
 cd fitness-tracker
 flutter pub get
 ```

@@ -168,4 +168,4 @@ Everything is local: SQLite + app sandbox, speech on-device, no network calls in
 2. Check-in time and reminder: a fixed morning notification, or open-the-app only?
 3. Should Muay Thai be split into sub-types (pads/sparring/clinch/conditioning), since they load very differently?
 4. Units: kg only, and km or miles for running?
-5. Separate repo `LewisAGI/<name>`, public like Shelf, or private?
+5. Separate repo `Lewis-AI-Collab/<name>`, public like Shelf, or private?
