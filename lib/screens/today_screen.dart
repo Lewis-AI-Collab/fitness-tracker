@@ -2,27 +2,33 @@ import 'package:flutter/material.dart';
 
 import '../data/store.dart';
 import '../models/training.dart';
+import '../models/workout.dart';
 import '../services/dates.dart';
 import '../services/speech_capture.dart';
+import '../services/voice_audio.dart';
 import '../services/voice_log_flow.dart';
 import '../services/voice_parser.dart';
+import '../services/workout_recorder.dart';
 import '../theme/app_theme.dart';
 import '../widgets/confirm_action.dart';
 import '../widgets/confirm_card.dart';
-import '../widgets/rest_pill.dart';
 import '../widgets/set_log.dart';
 import '../widgets/share_deck.dart';
 import 'checkin_screen.dart';
+import 'routine_editor_screen.dart';
+import 'workout_screen.dart';
 
 class TodayScreen extends StatefulWidget {
   const TodayScreen({
     super.key,
     required this.store,
     required this.speech,
+    this.recorder,
   });
 
   final Store store;
   final SpeechCapture speech;
+  final WorkoutRecorder? recorder;
 
   @override
   State<TodayScreen> createState() => _TodayScreenState();
@@ -32,18 +38,28 @@ class _TodayScreenState extends State<TodayScreen> {
   DayBundle? _day;
   var _listening = false;
   VoiceLogFlow? _flow;
+  late final WorkoutRecorder _recorder =
+      widget.recorder ??
+      SpeechWorkoutRecorder(widget.speech, audio: RecordVoiceAudio());
 
   @override
   void initState() {
     super.initState();
-    widget.store.addListener(_load);
+    widget.store.addListener(_onStore);
     _load();
   }
 
   @override
   void dispose() {
-    widget.store.removeListener(_load);
+    widget.store.removeListener(_onStore);
     super.dispose();
+  }
+
+  void _onStore() {
+    if (mounted) {
+      setState(() {});
+    }
+    _load();
   }
 
   Future<void> _load() async {
@@ -128,6 +144,93 @@ class _TodayScreenState extends State<TodayScreen> {
     await widget.store.deleteSession(session.id);
   }
 
+  Future<void> _openWorkout({Routine? routine}) async {
+    final active = widget.store.activeWorkout;
+    if (active != null && routine != null && routine.id != active.routineId) {
+      final replace = await _replaceOpenWorkout(active.name);
+      if (!mounted || replace == null) {
+        return;
+      }
+      if (replace) {
+        await widget.store.discardWorkout();
+        if (!mounted) {
+          return;
+        }
+        widget.store.startWorkout(from: routine);
+      }
+    } else if (active == null) {
+      widget.store.startWorkout(from: routine);
+    }
+    if (!mounted) {
+      return;
+    }
+    await Navigator.of(context).push(
+      PageRouteBuilder<void>(
+        transitionDuration: Duration.zero,
+        reverseTransitionDuration: Duration.zero,
+        pageBuilder: (context, animation, secondaryAnimation) =>
+            WorkoutScreen(store: widget.store, recorder: _recorder),
+      ),
+    );
+  }
+
+  Future<bool?> _replaceOpenWorkout(String name) {
+    return showDialog<bool>(
+      context: context,
+      builder: (context) => Dialog(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                name,
+                style: const TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 12),
+              FilledButton(
+                key: const ValueKey('resume-open'),
+                onPressed: () => Navigator.pop(context, false),
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppColors.accent,
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size.fromHeight(48),
+                ),
+                child: const Text('Resume'),
+              ),
+              TextButton(
+                key: const ValueKey('replace-open'),
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Discard and start'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _editRoutine([Routine? routine]) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (context) =>
+            RoutineEditorScreen(store: widget.store, routine: routine),
+      ),
+    );
+  }
+
+  Future<void> _deleteRoutine(Routine routine) async {
+    final ok = await confirmChoice(context);
+    if (!ok) {
+      return;
+    }
+    await widget.store.deleteRoutine(routine.id);
+  }
+
   void _openCheckIn(String slot) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
@@ -158,7 +261,9 @@ class _TodayScreenState extends State<TodayScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 12),
                 child: Icon(
                   Icons.mic,
-                  color: _listening ? AppColors.accentPressed : AppColors.accent,
+                  color: _listening
+                      ? AppColors.accentPressed
+                      : AppColors.accent,
                 ),
               ),
             ),
@@ -172,7 +277,7 @@ class _TodayScreenState extends State<TodayScreen> {
         ],
       ),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 4, 16, 96),
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
         children: [
           Text(
             fmtWeekdayDate(today),
@@ -183,6 +288,53 @@ class _TodayScreenState extends State<TodayScreen> {
             ),
           ),
           const SizedBox(height: 12),
+          FilledButton(
+            key: const ValueKey('start-workout'),
+            onPressed: () => _openWorkout(),
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.accent,
+              foregroundColor: Colors.white,
+              minimumSize: const Size.fromHeight(52),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+            ),
+            child: Text(
+              widget.store.activeWorkout == null
+                  ? 'Start workout'
+                  : 'Resume workout',
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+            ),
+          ),
+          const SizedBox(height: 16),
+          if (widget.store.routines.isEmpty)
+            Container(
+              width: double.infinity,
+              margin: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+              decoration: cardBox(),
+              child: const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'No routines yet',
+                    key: ValueKey('no-routines'),
+                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
+                  ),
+                ],
+              ),
+            )
+          else
+            for (final routine in widget.store.routines) _routine(routine),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton(
+              key: const ValueKey('create-routine'),
+              onPressed: () => _editRoutine(),
+              child: const Text('Create routine'),
+            ),
+          ),
+          const SizedBox(height: 8),
           Row(
             children: [
               _status(
@@ -226,11 +378,67 @@ class _TodayScreenState extends State<TodayScreen> {
                 store: widget.store,
                 onEdit: () => _edit(session),
                 onDelete: () => _delete(session),
+                onPlayNote: (note) => _recorder.play(
+                  audioPath: note.audioPath,
+                  transcript: note.transcript,
+                ),
+                onDeleteNote: (note) => widget.store.deleteVoiceNote(note.id),
               ),
         ],
       ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
-      floatingActionButton: const RestPill(),
+    );
+  }
+
+  Widget _routine(Routine routine) {
+    final names = routine.exercises.map((exercise) => exercise.name).join(', ');
+    return Container(
+      key: ValueKey('routine-${routine.id}'),
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.fromLTRB(16, 10, 4, 10),
+      decoration: cardBox(),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  routine.name,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                if (names.isNotEmpty)
+                  Text(
+                    names,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: AppColors.muted),
+                  ),
+              ],
+            ),
+          ),
+          TextButton(
+            key: ValueKey('start-routine-${routine.id}'),
+            onPressed: () => _openWorkout(routine: routine),
+            child: const Text('Start'),
+          ),
+          IconButton(
+            key: ValueKey('edit-routine-${routine.id}'),
+            tooltip: 'Edit',
+            onPressed: () => _editRoutine(routine),
+            icon: const Icon(Icons.edit_outlined, color: AppColors.accent),
+          ),
+          IconButton(
+            key: ValueKey('delete-routine-${routine.id}'),
+            tooltip: 'Delete',
+            onPressed: () => _deleteRoutine(routine),
+            icon: const Icon(Icons.delete_outline, color: AppColors.accent),
+          ),
+        ],
+      ),
     );
   }
 

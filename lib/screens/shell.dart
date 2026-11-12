@@ -4,6 +4,8 @@ import '../data/store.dart';
 import '../services/checkin_scheduler.dart';
 import '../services/dates.dart';
 import '../services/speech_capture.dart';
+import '../services/voice_audio.dart';
+import '../services/workout_recorder.dart';
 import '../theme/app_theme.dart';
 import 'checkin_screen.dart';
 import 'history_screen.dart';
@@ -18,11 +20,13 @@ class HomeShell extends StatefulWidget {
     required this.store,
     required this.scheduler,
     this.speech,
+    this.recorder,
   });
 
   final Store store;
   final CheckInScheduler scheduler;
   final SpeechCapture? speech;
+  final WorkoutRecorder? recorder;
 
   @override
   State<HomeShell> createState() => _HomeShellState();
@@ -31,6 +35,9 @@ class HomeShell extends StatefulWidget {
 class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   var _index = 0;
   late final SpeechCapture _speech = widget.speech ?? SpeechCapture();
+  late final WorkoutRecorder _notes =
+      widget.recorder ??
+      SpeechWorkoutRecorder(_speech, audio: RecordVoiceAudio());
   DateTime? _historyDay;
 
   @override
@@ -71,11 +78,8 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     if (value == 'morning' || value == 'evening') {
       Navigator.of(context).push(
         MaterialPageRoute<void>(
-          builder: (context) => CheckInScreen(
-            store: widget.store,
-            slot: value,
-            speech: _speech,
-          ),
+          builder: (context) =>
+              CheckInScreen(store: widget.store, slot: value, speech: _speech),
         ),
       );
       return;
@@ -92,9 +96,13 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     final pages = [
-      TodayScreen(store: widget.store, speech: _speech),
+      TodayScreen(store: widget.store, speech: _speech, recorder: _notes),
       PlanScreen(store: widget.store),
-      HistoryScreen(store: widget.store, initialDay: _historyDay),
+      HistoryScreen(
+        store: widget.store,
+        initialDay: _historyDay,
+        recorder: _notes,
+      ),
       InsightsScreen(store: widget.store),
       SettingsScreen(store: widget.store, scheduler: widget.scheduler),
     ];
@@ -143,10 +151,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       child: IconButton(
         key: ValueKey('tab-$message'),
         onPressed: () => setState(() => _index = index),
-        icon: Icon(
-          icon,
-          color: selected ? AppColors.accent : AppColors.muted,
-        ),
+        icon: Icon(icon, color: selected ? AppColors.accent : AppColors.muted),
       ),
     );
   }

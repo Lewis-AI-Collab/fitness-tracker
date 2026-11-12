@@ -3,15 +3,22 @@ import 'package:flutter/material.dart';
 import '../data/store.dart';
 import '../models/training.dart';
 import '../services/dates.dart';
+import '../services/workout_recorder.dart';
 import '../theme/app_theme.dart';
 import '../widgets/icon_tip.dart';
 import '../widgets/set_log.dart';
 
 class HistoryScreen extends StatefulWidget {
-  const HistoryScreen({super.key, required this.store, this.initialDay});
+  const HistoryScreen({
+    super.key,
+    required this.store,
+    this.initialDay,
+    this.recorder,
+  });
 
   final Store store;
   final DateTime? initialDay;
+  final WorkoutRecorder? recorder;
 
   @override
   State<HistoryScreen> createState() => _HistoryScreenState();
@@ -137,7 +144,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Text('${day.day}', style: const TextStyle(fontWeight: FontWeight.w600)),
+          Text(
+            '${day.day}',
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          ),
           const SizedBox(height: 4),
           Container(
             width: 6,
@@ -169,13 +179,24 @@ class _HistoryScreenState extends State<HistoryScreen> {
               children: [
                 Text(
                   fmtWeekdayDate(day),
-                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
                 const SizedBox(height: 8),
                 for (final session in bundle.sessions)
                   SetLog(
                     session: session,
                     goals: widget.store.goals,
+                    onPlayNote: widget.recorder == null
+                        ? null
+                        : (note) => widget.recorder!.play(
+                            audioPath: note.audioPath,
+                            transcript: note.transcript,
+                          ),
+                    onDeleteNote: (note) =>
+                        widget.store.deleteVoiceNote(note.id),
                   ),
                 if (bundle.morning != null)
                   Text('Morning · ${_checkLine(bundle.morning!)}'),

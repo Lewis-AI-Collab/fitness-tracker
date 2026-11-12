@@ -5,6 +5,7 @@ import 'data/store.dart';
 import 'screens/shell.dart';
 import 'services/checkin_scheduler.dart';
 import 'services/speech_capture.dart';
+import 'services/workout_recorder.dart';
 import 'theme/app_theme.dart';
 
 class FitnessApp extends StatelessWidget {
@@ -13,11 +14,13 @@ class FitnessApp extends StatelessWidget {
     required this.store,
     required this.scheduler,
     this.speech,
+    this.recorder,
   });
 
   final Store store;
   final CheckInScheduler scheduler;
   final SpeechCapture? speech;
+  final WorkoutRecorder? recorder;
 
   @override
   Widget build(BuildContext context) {
@@ -32,7 +35,12 @@ class FitnessApp extends StatelessWidget {
         GlobalCupertinoLocalizations.delegate,
       ],
       theme: buildTheme(),
-      home: HomeShell(store: store, scheduler: scheduler, speech: speech),
+      home: HomeShell(
+        store: store,
+        scheduler: scheduler,
+        speech: speech,
+        recorder: recorder,
+      ),
     );
   }
 }

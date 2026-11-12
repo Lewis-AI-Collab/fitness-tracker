@@ -5,7 +5,7 @@ import 'package:sqflite/sqflite.dart';
 
 import 'exercise_seed.dart';
 
-const fitnessSchemaVersion = 3;
+const fitnessSchemaVersion = 4;
 
 Future<Database> openFitnessDatabase({String? path}) async {
   final resolved = path ?? p.join(await getDatabasesPath(), 'fitness.db');
@@ -159,6 +159,7 @@ Future<Database> openFitnessDatabase({String? path}) async {
           created_on TEXT NOT NULL
         )
       ''');
+      await createWorkoutSchema(db);
       final batch = db.batch();
       for (final exercise in seedExercises()) {
         batch.insert('exercises', {
@@ -175,9 +176,7 @@ Future<Database> openFitnessDatabase({String? path}) async {
     },
     onUpgrade: upgradeFitnessDatabase,
     onDowngrade: (db, oldVersion, newVersion) {
-      throw StateError(
-        'Cannot open a v$oldVersion database as v$newVersion.',
-      );
+      throw StateError('Cannot open a v$oldVersion database as v$newVersion.');
     },
   );
 }
@@ -240,6 +239,54 @@ Future<void> upgradeFitnessDatabase(
       )
     ''');
   }
+  if (oldVersion < 4) {
+    await createWorkoutSchema(db);
+  }
+}
+
+/// Routines and the voice notes attached to a finished session.
+/// Safe to run again: an already-upgraded file keeps its rows.
+Future<void> createWorkoutSchema(DatabaseExecutor db) async {
+  await db.execute('''
+    CREATE TABLE IF NOT EXISTS routines (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      position INTEGER NOT NULL,
+      created_on TEXT NOT NULL
+    )
+  ''');
+  await db.execute('''
+    CREATE TABLE IF NOT EXISTS routine_exercises (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      routine_id INTEGER NOT NULL,
+      exercise_id INTEGER,
+      name TEXT NOT NULL,
+      position INTEGER NOT NULL,
+      FOREIGN KEY(routine_id) REFERENCES routines(id) ON DELETE CASCADE
+    )
+  ''');
+  await db.execute('''
+    CREATE TABLE IF NOT EXISTS routine_sets (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      routine_exercise_id INTEGER NOT NULL,
+      position INTEGER NOT NULL,
+      reps INTEGER,
+      weight_kg REAL,
+      FOREIGN KEY(routine_exercise_id) REFERENCES routine_exercises(id) ON DELETE CASCADE
+    )
+  ''');
+  await db.execute('''
+    CREATE TABLE IF NOT EXISTS voice_notes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id INTEGER NOT NULL,
+      exercise_id INTEGER,
+      exercise_name TEXT,
+      transcript TEXT NOT NULL,
+      audio_path TEXT,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
+    )
+  ''');
 }
 
 List<String> decodeStrings(String? raw) {
