@@ -145,7 +145,20 @@ class _TodayScreenState extends State<TodayScreen> {
   }
 
   Future<void> _openWorkout({Routine? routine}) async {
-    if (widget.store.activeWorkout == null) {
+    final active = widget.store.activeWorkout;
+    if (active != null && routine != null && routine.id != active.routineId) {
+      final replace = await _replaceOpenWorkout(active.name);
+      if (!mounted || replace == null) {
+        return;
+      }
+      if (replace) {
+        await widget.store.discardWorkout();
+        if (!mounted) {
+          return;
+        }
+        widget.store.startWorkout(from: routine);
+      }
+    } else if (active == null) {
       widget.store.startWorkout(from: routine);
     }
     if (!mounted) {
@@ -157,6 +170,46 @@ class _TodayScreenState extends State<TodayScreen> {
         reverseTransitionDuration: Duration.zero,
         pageBuilder: (context, animation, secondaryAnimation) =>
             WorkoutScreen(store: widget.store, recorder: _recorder),
+      ),
+    );
+  }
+
+  Future<bool?> _replaceOpenWorkout(String name) {
+    return showDialog<bool>(
+      context: context,
+      builder: (context) => Dialog(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                name,
+                style: const TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 12),
+              FilledButton(
+                key: const ValueKey('resume-open'),
+                onPressed: () => Navigator.pop(context, false),
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppColors.accent,
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size.fromHeight(48),
+                ),
+                child: const Text('Resume'),
+              ),
+              TextButton(
+                key: const ValueKey('replace-open'),
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Discard and start'),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -255,16 +308,20 @@ class _TodayScreenState extends State<TodayScreen> {
           ),
           const SizedBox(height: 16),
           if (widget.store.routines.isEmpty)
-            const Padding(
-              padding: EdgeInsets.only(bottom: 8),
-              child: Text(
-                'No routines yet',
-                key: ValueKey('no-routines'),
-                style: TextStyle(
-                  fontSize: 16,
-                  color: AppColors.muted,
-                  fontWeight: FontWeight.w600,
-                ),
+            Container(
+              width: double.infinity,
+              margin: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+              decoration: cardBox(),
+              child: const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'No routines yet',
+                    key: ValueKey('no-routines'),
+                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
+                  ),
+                ],
               ),
             )
           else

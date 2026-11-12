@@ -176,9 +176,9 @@ void main() {
             ],
           ),
         );
-        store.startWorkout(from: store.routines.single);
         return store;
       }))!;
+      store.startWorkout(from: store.routines.single);
       await _pumpWorkout(tester, store, FakeWorkoutRecorder());
 
       expect(find.byKey(const ValueKey('workout-screen')), findsOneWidget);
@@ -228,7 +228,10 @@ void main() {
     store.startWorkout();
     await _pumpWorkout(tester, store, FakeWorkoutRecorder());
 
-    await tester.enterText(find.byKey(const ValueKey('session-exercise')), 'Dip');
+    await tester.enterText(
+      find.byKey(const ValueKey('session-exercise')),
+      'Dip',
+    );
     await tester.tap(find.byKey(const ValueKey('add-session-exercise')));
     await tester.pump();
     expect(find.text('Dip'), findsWidgets);
@@ -274,9 +277,9 @@ void main() {
             ],
           ),
         );
-        store.startWorkout(from: store.routines.single);
         return store;
       }))!;
+      store.startWorkout(from: store.routines.single);
       final recorder = FakeWorkoutRecorder();
       await _pumpWorkout(tester, store, recorder);
 

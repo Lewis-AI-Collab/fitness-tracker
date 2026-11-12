@@ -131,6 +131,7 @@ class Store extends ChangeNotifier {
     roundMinutes = int.tryParse(await _setting('round_minutes') ?? '') ?? 3;
     notificationsDenied =
         (await _setting('notifications_denied') ?? '0') == '1';
+    activeWorkout = _workoutFromJson(await _setting('active_workout'));
     notifyListeners();
   }
 
@@ -499,6 +500,8 @@ class Store extends ChangeNotifier {
     }
     final date = rows.first['date'] as String;
     final time = rows.first['start_time'] as String?;
+    final clearing = result.sessions.isEmpty;
+    final paths = clearing ? await _audioPaths(id) : const <String>[];
     await db.transaction((txn) async {
       await txn.delete('sets', where: 'session_id = ?', whereArgs: [id]);
       await txn.delete(
@@ -529,13 +532,39 @@ class Store extends ChangeNotifier {
       }
     });
     notifyListeners();
+    if (clearing) {
+      await _deletePaths(paths);
+    }
   }
 
   Future<void> deleteSession(int id) async {
+    final paths = await _audioPaths(id);
     await db.transaction((txn) async {
       await txn.delete('sessions', where: 'id = ?', whereArgs: [id]);
     });
     notifyListeners();
+    await _deletePaths(paths);
+  }
+
+  Future<List<String>> _audioPaths(int sessionId) async {
+    final rows = await db.query(
+      'voice_notes',
+      columns: ['audio_path'],
+      where: 'session_id = ?',
+      whereArgs: [sessionId],
+    );
+    return [
+      for (final row in rows)
+        if (row['audio_path'] is String &&
+            (row['audio_path'] as String).isNotEmpty)
+          row['audio_path'] as String,
+    ];
+  }
+
+  Future<void> _deletePaths(List<String> paths) async {
+    for (final path in paths) {
+      await _deleteIfPresent(path);
+    }
   }
 
   Future<void> _writeParse(
@@ -1216,6 +1245,7 @@ class Store extends ChangeNotifier {
       exercises: exercises,
     );
     notifyListeners();
+    _queueActive();
   }
 
   void addActiveExercise(String name) {
@@ -1237,6 +1267,7 @@ class Store extends ChangeNotifier {
     );
     workout.exerciseIndex = workout.exercises.length - 1;
     notifyListeners();
+    _queueActive();
   }
 
   void addActiveSet() {
@@ -1249,6 +1280,7 @@ class Store extends ChangeNotifier {
       ActiveSet(reps: last?.reps ?? 8, weightKg: last?.weightKg),
     );
     notifyListeners();
+    _queueActive();
   }
 
   void toggleActiveSet(int index) {
@@ -1266,6 +1298,7 @@ class Store extends ChangeNotifier {
       workout.restToken += 1;
     }
     notifyListeners();
+    _queueActive();
   }
 
   void updateActiveSet(
@@ -1286,6 +1319,7 @@ class Store extends ChangeNotifier {
       set.weightKg = weightKg;
     }
     notifyListeners();
+    _queueActive();
   }
 
   void stepExercise(int delta) {
@@ -1299,6 +1333,7 @@ class Store extends ChangeNotifier {
     }
     workout.exerciseIndex = next;
     notifyListeners();
+    _queueActive();
   }
 
   void setRestSeconds(int seconds) {
@@ -1308,6 +1343,7 @@ class Store extends ChangeNotifier {
     }
     workout.restSeconds = seconds.clamp(15, 300).toInt();
     notifyListeners();
+    _queueActive();
   }
 
   void addActiveNote({
@@ -1337,6 +1373,7 @@ class Store extends ChangeNotifier {
       ),
     );
     notifyListeners();
+    _queueActive();
   }
 
   void deleteActiveNote(int index) {
@@ -1346,12 +1383,38 @@ class Store extends ChangeNotifier {
     }
     final note = workout.notes.removeAt(index);
     notifyListeners();
+    _queueActive();
     unawaited(_deleteIfPresent(note.audioPath));
   }
 
-  Future<int?> finishWorkout() async {
+  Future<int?>? _finishGate;
+
+  Future<int?> finishWorkout() {
+    final gate = _finishGate;
+    if (gate != null) {
+      return gate;
+    }
+    final run = _finishWorkout();
+    _finishGate = run;
+    return run.whenComplete(() {
+      if (identical(_finishGate, run)) {
+        _finishGate = null;
+      }
+    });
+  }
+
+  Future<int?> _finishWorkout() async {
     final workout = activeWorkout;
     if (workout == null) {
+      return null;
+    }
+    final logged =
+        workout.notes.isNotEmpty ||
+        workout.exercises.any(
+          (exercise) => exercise.sets.any((set) => set.done),
+        );
+    if (!logged) {
+      await discardWorkout();
       return null;
     }
     final minutes = now().difference(workout.startedAt).inMinutes;
@@ -1401,8 +1464,7 @@ class Store extends ChangeNotifier {
       return id;
     });
     activeWorkout = null;
-    // Listeners reload the day. Defer that until the write has returned the
-    // connection, or the reload can sit on the same sqlite callback.
+    await _clearActive();
     scheduleMicrotask(notifyListeners);
     return sessionId;
   }
@@ -1410,9 +1472,145 @@ class Store extends ChangeNotifier {
   Future<void> discardWorkout() async {
     final notes = activeWorkout?.notes.toList() ?? const <VoiceNote>[];
     activeWorkout = null;
+    await _clearActive();
     notifyListeners();
     for (final note in notes) {
       await _deleteIfPresent(note.audioPath);
+    }
+  }
+
+  void _queueActive() {
+    final raw = _workoutToJson(activeWorkout);
+    // Root zone so a widget test's fake clock does not sit on the write.
+    unawaited(Zone.root.run(() => _track(_serial(() => _storeActive(raw)))));
+  }
+
+  Future<void> _clearActive() {
+    return Zone.root.run(() => _track(_serial(() => _storeActive(null))));
+  }
+
+  Future<void> _storeActive(String? raw) async {
+    if (raw == null) {
+      await db.delete(
+        'settings',
+        where: 'key = ?',
+        whereArgs: ['active_workout'],
+      );
+      return;
+    }
+    await _putSetting('active_workout', raw);
+  }
+
+  String? _workoutToJson(ActiveWorkout? workout) {
+    if (workout == null) {
+      return null;
+    }
+    return jsonEncode({
+      'routineId': workout.routineId,
+      'name': workout.name,
+      'startedAt': workout.startedAt.toIso8601String(),
+      'exerciseIndex': workout.exerciseIndex,
+      'restSeconds': workout.restSeconds,
+      'restToken': workout.restToken,
+      'exercises': [
+        for (final exercise in workout.exercises)
+          {
+            'exerciseId': exercise.exerciseId,
+            'name': exercise.name,
+            'sets': [
+              for (final set in exercise.sets)
+                {'reps': set.reps, 'weightKg': set.weightKg, 'done': set.done},
+            ],
+          },
+      ],
+      'notes': [
+        for (final note in workout.notes)
+          {
+            'exerciseId': note.exerciseId,
+            'exerciseName': note.exerciseName,
+            'transcript': note.transcript,
+            'audioPath': note.audioPath,
+            'createdAt': note.createdAt,
+          },
+      ],
+    });
+  }
+
+  ActiveWorkout? _workoutFromJson(String? raw) {
+    if (raw == null || raw.isEmpty) {
+      return null;
+    }
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) {
+        return null;
+      }
+      final exercises = <ActiveExercise>[];
+      final rawExercises = decoded['exercises'];
+      if (rawExercises is List) {
+        for (final item in rawExercises) {
+          if (item is! Map) {
+            continue;
+          }
+          final sets = <ActiveSet>[];
+          final rawSets = item['sets'];
+          if (rawSets is List) {
+            for (final set in rawSets) {
+              if (set is! Map) {
+                continue;
+              }
+              sets.add(
+                ActiveSet(
+                  reps: (set['reps'] as num?)?.toInt() ?? 8,
+                  weightKg: (set['weightKg'] as num?)?.toDouble(),
+                  done: set['done'] == true,
+                ),
+              );
+            }
+          }
+          exercises.add(
+            ActiveExercise(
+              exerciseId: (item['exerciseId'] as num?)?.toInt(),
+              name: item['name'] as String? ?? 'Exercise',
+              sets: sets,
+            ),
+          );
+        }
+      }
+      final notes = <VoiceNote>[];
+      final rawNotes = decoded['notes'];
+      if (rawNotes is List) {
+        for (final item in rawNotes) {
+          if (item is! Map) {
+            continue;
+          }
+          notes.add(
+            VoiceNote(
+              exerciseId: (item['exerciseId'] as num?)?.toInt(),
+              exerciseName: item['exerciseName'] as String?,
+              transcript: item['transcript'] as String? ?? '',
+              audioPath: item['audioPath'] as String?,
+              createdAt: item['createdAt'] as String? ?? '',
+            ),
+          );
+        }
+      }
+      final started = DateTime.tryParse(decoded['startedAt'] as String? ?? '');
+      if (started == null) {
+        return null;
+      }
+      return ActiveWorkout(
+        routineId: (decoded['routineId'] as num?)?.toInt(),
+        name: decoded['name'] as String? ?? 'Workout',
+        startedAt: started,
+        exerciseIndex: (decoded['exerciseIndex'] as num?)?.toInt() ?? 0,
+        restSeconds: (decoded['restSeconds'] as num?)?.toInt() ?? 90,
+        restToken: (decoded['restToken'] as num?)?.toInt() ?? 0,
+        exercises: exercises,
+        notes: notes,
+      );
+    } on Object {
+      return null;
     }
   }
 

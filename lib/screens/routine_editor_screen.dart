@@ -5,6 +5,7 @@ import '../models/training.dart';
 import '../models/workout.dart';
 import '../services/normalise.dart';
 import '../theme/app_theme.dart';
+import '../widgets/confirm_action.dart';
 import '../widgets/icon_tip.dart';
 import '../widgets/value_picker.dart';
 
@@ -42,12 +43,14 @@ class _DraftExercise {
 class _RoutineEditorScreenState extends State<RoutineEditorScreen> {
   late final TextEditingController _name;
   late final List<_DraftExercise> _exercises;
+  var _dirty = false;
 
   @override
   void initState() {
     super.initState();
     final routine = widget.routine;
     _name = TextEditingController(text: routine?.name ?? '');
+    _name.addListener(_markDirty);
     _exercises = [
       for (final exercise in routine?.exercises ?? const <RoutineExercise>[])
         _DraftExercise(
@@ -64,8 +67,30 @@ class _RoutineEditorScreenState extends State<RoutineEditorScreen> {
     }
   }
 
+  void _markDirty() {
+    _dirty = true;
+  }
+
+  Future<void> _maybeLeave() async {
+    if (!_dirty) {
+      Navigator.pop(context);
+      return;
+    }
+    final ok = await confirmChoice(context);
+    if (!ok || !mounted) {
+      return;
+    }
+    setState(() => _dirty = false);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        Navigator.pop(context);
+      }
+    });
+  }
+
   @override
   void dispose() {
+    _name.removeListener(_markDirty);
     _name.dispose();
     for (final exercise in _exercises) {
       exercise.dispose();
@@ -98,16 +123,23 @@ class _RoutineEditorScreenState extends State<RoutineEditorScreen> {
     if (!mounted) {
       return;
     }
+    _dirty = false;
     Navigator.pop(context);
   }
 
   void _addExercise() {
-    setState(() => _exercises.add(_DraftExercise()));
+    setState(() {
+      _dirty = true;
+      _exercises.add(_DraftExercise());
+    });
   }
 
   void _deleteExercise(int index) {
     final removed = _exercises[index];
-    setState(() => _exercises.removeAt(index));
+    setState(() {
+      _dirty = true;
+      _exercises.removeAt(index);
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) => removed.dispose());
   }
 
@@ -117,6 +149,7 @@ class _RoutineEditorScreenState extends State<RoutineEditorScreen> {
       return;
     }
     setState(() {
+      _dirty = true;
       final item = _exercises.removeAt(index);
       _exercises.insert(next, item);
     });
@@ -125,6 +158,7 @@ class _RoutineEditorScreenState extends State<RoutineEditorScreen> {
   void _addSet(_DraftExercise exercise) {
     final last = exercise.sets.isEmpty ? null : exercise.sets.last;
     setState(() {
+      _dirty = true;
       exercise.sets.add(_DraftSet(reps: last?.reps ?? 8, kg: last?.kg));
     });
   }
@@ -133,7 +167,10 @@ class _RoutineEditorScreenState extends State<RoutineEditorScreen> {
     if (exercise.sets.length <= 1) {
       return;
     }
-    setState(() => exercise.sets.removeAt(index));
+    setState(() {
+      _dirty = true;
+      exercise.sets.removeAt(index);
+    });
   }
 
   void _moveSet(_DraftExercise exercise, int index, int delta) {
@@ -142,6 +179,7 @@ class _RoutineEditorScreenState extends State<RoutineEditorScreen> {
       return;
     }
     setState(() {
+      _dirty = true;
       final item = exercise.sets.removeAt(index);
       exercise.sets.insert(next, item);
     });
@@ -156,6 +194,7 @@ class _RoutineEditorScreenState extends State<RoutineEditorScreen> {
       return;
     }
     setState(() {
+      _dirty = true;
       final exercise = _exercises[index];
       exercise.exerciseId = picked.id;
       exercise.nameController.text = picked.name;
@@ -173,7 +212,10 @@ class _RoutineEditorScreenState extends State<RoutineEditorScreen> {
     if (next == null) {
       return;
     }
-    setState(() => set.reps = next.toInt());
+    setState(() {
+      _dirty = true;
+      set.reps = next.toInt();
+    });
   }
 
   Future<void> _pickKg(_DraftExercise exercise, int index) async {
@@ -187,69 +229,88 @@ class _RoutineEditorScreenState extends State<RoutineEditorScreen> {
     if (next == null) {
       return;
     }
-    setState(() => set.kg = next.toDouble());
+    setState(() {
+      _dirty = true;
+      set.kg = next.toDouble();
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Routine')),
-      body: Column(
-        children: [
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
-              children: [
-                TextField(
-                  key: const ValueKey('routine-name'),
-                  controller: _name,
-                  textCapitalization: TextCapitalization.sentences,
-                  style: const TextStyle(
-                    fontSize: 28,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: -0.4,
-                  ),
-                  decoration: const InputDecoration(
-                    hintText: 'Routine name',
-                    border: InputBorder.none,
-                  ),
-                ),
-                for (var i = 0; i < _exercises.length; i++) _exerciseCard(i),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: TextButton.icon(
-                    key: const ValueKey('add-exercise'),
-                    onPressed: _addExercise,
-                    icon: const Icon(Icons.add),
-                    label: const Text('Add exercise'),
-                  ),
-                ),
-              ],
-            ),
+    return PopScope(
+      canPop: !_dirty,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) {
+          return;
+        }
+        await _maybeLeave();
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Routine'),
+          leading: IconButton(
+            tooltip: 'Back',
+            onPressed: _maybeLeave,
+            icon: const Icon(Icons.arrow_back),
           ),
-          SafeArea(
-            top: false,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-              child: FilledButton(
-                key: const ValueKey('save-routine'),
-                onPressed: _save,
-                style: FilledButton.styleFrom(
-                  backgroundColor: AppColors.accent,
-                  foregroundColor: Colors.white,
-                  minimumSize: const Size.fromHeight(52),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
+        ),
+        body: Column(
+          children: [
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+                children: [
+                  TextField(
+                    key: const ValueKey('routine-name'),
+                    controller: _name,
+                    textCapitalization: TextCapitalization.sentences,
+                    style: const TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: -0.4,
+                    ),
+                    decoration: const InputDecoration(
+                      hintText: 'Routine name',
+                      border: InputBorder.none,
+                    ),
                   ),
-                ),
-                child: const Text(
-                  'Save routine',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+                  for (var i = 0; i < _exercises.length; i++) _exerciseCard(i),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      key: const ValueKey('add-exercise'),
+                      onPressed: _addExercise,
+                      icon: const Icon(Icons.add),
+                      label: const Text('Add exercise'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+                child: FilledButton(
+                  key: const ValueKey('save-routine'),
+                  onPressed: _save,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.accent,
+                    foregroundColor: Colors.white,
+                    minimumSize: const Size.fromHeight(52),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                  ),
+                  child: const Text(
+                    'Save routine',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+                  ),
                 ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -282,6 +343,7 @@ class _RoutineEditorScreenState extends State<RoutineEditorScreen> {
                     isDense: true,
                   ),
                   onChanged: (value) {
+                    _dirty = true;
                     exercise.exerciseId = widget.store.matchExercise(value)?.id;
                   },
                 ),

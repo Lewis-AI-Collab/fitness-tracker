@@ -28,6 +28,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   var _recording = false;
   var _busy = false;
   var _denied = false;
+  var _finishing = false;
   int? _captureExercise;
 
   @override
@@ -77,16 +78,38 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   }
 
   Future<void> _finish() async {
-    final ok = await confirmChoice(context);
-    if (!ok || !mounted) {
+    if (_finishing) {
       return;
     }
-    await widget.store.finishWorkout();
-    if (!mounted) {
-      return;
-    }
-    if (Navigator.of(context).canPop()) {
-      Navigator.pop(context);
+    _finishing = true;
+    try {
+      final ok = await confirmChoice(context);
+      if (!ok || !mounted) {
+        return;
+      }
+      if (_recording) {
+        _recording = false;
+        try {
+          final capture = await widget.recorder.stop();
+          if (!capture.denied) {
+            _attach(capture);
+          }
+        } on Object {
+          // The take could not be closed. Finish still continues.
+        }
+      }
+      if (!mounted) {
+        return;
+      }
+      await widget.store.finishWorkout();
+      if (!mounted) {
+        return;
+      }
+      if (Navigator.of(context).canPop()) {
+        Navigator.pop(context);
+      }
+    } finally {
+      _finishing = false;
     }
   }
 
@@ -238,7 +261,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  current?.name ?? 'Add an exercise',
+                  current?.name ?? workout.name,
                   key: const ValueKey('current-exercise'),
                   style: const TextStyle(
                     fontSize: 28,
@@ -287,15 +310,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
             child: ListView(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
               children: [
-                if (current == null)
-                  const Padding(
-                    padding: EdgeInsets.only(bottom: 8),
-                    child: Text(
-                      'Add an exercise',
-                      style: TextStyle(fontSize: 16, color: AppColors.muted),
-                    ),
-                  )
-                else
+                if (current != null)
                   for (var i = 0; i < current.sets.length; i++)
                     _setRow(i, current.sets[i]),
                 if (current != null)
@@ -451,7 +466,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
   }
 
   Widget _setRow(int index, ActiveSet set) {
-    final kg = set.weightKg == null ? '–' : '${fmtKg(set.weightKg!)} kg';
+    final kg = set.weightKg == null ? '– kg' : '${fmtKg(set.weightKg!)} kg';
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.only(bottom: 8),
