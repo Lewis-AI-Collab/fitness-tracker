@@ -8,6 +8,7 @@ import '../services/normalise.dart';
 import '../services/workout_recorder.dart';
 import '../theme/app_theme.dart';
 import '../widgets/confirm_action.dart';
+import '../widgets/icon_tip.dart';
 import '../widgets/rest_pill.dart';
 import '../widgets/value_picker.dart';
 import '../widgets/voice_note_list.dart';
@@ -83,7 +84,7 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     }
     _finishing = true;
     try {
-      final ok = await confirmChoice(context);
+      final ok = await _confirmFinish();
       if (!ok || !mounted) {
         return;
       }
@@ -111,6 +112,59 @@ class _WorkoutScreenState extends State<WorkoutScreen> {
     } finally {
       _finishing = false;
     }
+  }
+
+  bool _willKeep(ActiveWorkout? workout) {
+    if (workout == null) {
+      return false;
+    }
+    if (workout.notes.isNotEmpty || _recording) {
+      return true;
+    }
+    return workout.exercises.any(
+      (exercise) => exercise.sets.any((set) => set.done),
+    );
+  }
+
+  Future<bool> _confirmFinish() async {
+    if (_willKeep(widget.store.activeWorkout)) {
+      return confirmChoice(context);
+    }
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) => Dialog(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 8, 8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Discard',
+                key: ValueKey('finish-discard'),
+                style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
+              ),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconTip(
+                    icon: Icons.close,
+                    message: 'Cancel',
+                    onPressed: () => Navigator.pop(context, false),
+                  ),
+                  IconTip(
+                    icon: Icons.delete_outline,
+                    message: 'Discard',
+                    onPressed: () => Navigator.pop(context, true),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    return result ?? false;
   }
 
   Future<void> _discard() async {

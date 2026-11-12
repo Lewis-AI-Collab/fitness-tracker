@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 
 import '../data/store.dart';
@@ -43,14 +45,16 @@ class _DraftExercise {
 class _RoutineEditorScreenState extends State<RoutineEditorScreen> {
   late final TextEditingController _name;
   late final List<_DraftExercise> _exercises;
-  var _dirty = false;
+  late final String _original;
+  String? _built;
+  var _popping = false;
 
   @override
   void initState() {
     super.initState();
     final routine = widget.routine;
     _name = TextEditingController(text: routine?.name ?? '');
-    _name.addListener(_markDirty);
+    _name.addListener(_onName);
     _exercises = [
       for (final exercise in routine?.exercises ?? const <RoutineExercise>[])
         _DraftExercise(
@@ -65,10 +69,32 @@ class _RoutineEditorScreenState extends State<RoutineEditorScreen> {
     if (_exercises.isEmpty) {
       _exercises.add(_DraftExercise());
     }
+    _original = _draftKey();
   }
 
-  void _markDirty() {
-    _dirty = true;
+  String _draftKey() {
+    return jsonEncode({
+      'name': _name.text,
+      'exercises': [
+        for (final exercise in _exercises)
+          {
+            'exerciseId': exercise.exerciseId,
+            'name': exercise.name,
+            'sets': [
+              for (final set in exercise.sets) [set.reps, set.kg],
+            ],
+          },
+      ],
+    });
+  }
+
+  bool get _dirty => _draftKey() != _original;
+
+  void _onName() {
+    if (!mounted || _draftKey() == (_built ?? _original)) {
+      return;
+    }
+    setState(() {});
   }
 
   Future<void> _maybeLeave() async {
@@ -80,7 +106,7 @@ class _RoutineEditorScreenState extends State<RoutineEditorScreen> {
     if (!ok || !mounted) {
       return;
     }
-    setState(() => _dirty = false);
+    setState(() => _popping = true);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         Navigator.pop(context);
@@ -90,7 +116,7 @@ class _RoutineEditorScreenState extends State<RoutineEditorScreen> {
 
   @override
   void dispose() {
-    _name.removeListener(_markDirty);
+    _name.removeListener(_onName);
     _name.dispose();
     for (final exercise in _exercises) {
       exercise.dispose();
@@ -123,13 +149,16 @@ class _RoutineEditorScreenState extends State<RoutineEditorScreen> {
     if (!mounted) {
       return;
     }
-    _dirty = false;
-    Navigator.pop(context);
+    setState(() => _popping = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        Navigator.pop(context);
+      }
+    });
   }
 
   void _addExercise() {
     setState(() {
-      _dirty = true;
       _exercises.add(_DraftExercise());
     });
   }
@@ -137,7 +166,6 @@ class _RoutineEditorScreenState extends State<RoutineEditorScreen> {
   void _deleteExercise(int index) {
     final removed = _exercises[index];
     setState(() {
-      _dirty = true;
       _exercises.removeAt(index);
     });
     WidgetsBinding.instance.addPostFrameCallback((_) => removed.dispose());
@@ -149,7 +177,6 @@ class _RoutineEditorScreenState extends State<RoutineEditorScreen> {
       return;
     }
     setState(() {
-      _dirty = true;
       final item = _exercises.removeAt(index);
       _exercises.insert(next, item);
     });
@@ -158,7 +185,6 @@ class _RoutineEditorScreenState extends State<RoutineEditorScreen> {
   void _addSet(_DraftExercise exercise) {
     final last = exercise.sets.isEmpty ? null : exercise.sets.last;
     setState(() {
-      _dirty = true;
       exercise.sets.add(_DraftSet(reps: last?.reps ?? 8, kg: last?.kg));
     });
   }
@@ -168,7 +194,6 @@ class _RoutineEditorScreenState extends State<RoutineEditorScreen> {
       return;
     }
     setState(() {
-      _dirty = true;
       exercise.sets.removeAt(index);
     });
   }
@@ -179,7 +204,6 @@ class _RoutineEditorScreenState extends State<RoutineEditorScreen> {
       return;
     }
     setState(() {
-      _dirty = true;
       final item = exercise.sets.removeAt(index);
       exercise.sets.insert(next, item);
     });
@@ -194,7 +218,6 @@ class _RoutineEditorScreenState extends State<RoutineEditorScreen> {
       return;
     }
     setState(() {
-      _dirty = true;
       final exercise = _exercises[index];
       exercise.exerciseId = picked.id;
       exercise.nameController.text = picked.name;
@@ -213,7 +236,6 @@ class _RoutineEditorScreenState extends State<RoutineEditorScreen> {
       return;
     }
     setState(() {
-      _dirty = true;
       set.reps = next.toInt();
     });
   }
@@ -230,15 +252,15 @@ class _RoutineEditorScreenState extends State<RoutineEditorScreen> {
       return;
     }
     setState(() {
-      _dirty = true;
       set.kg = next.toDouble();
     });
   }
 
   @override
   Widget build(BuildContext context) {
+    _built = _draftKey();
     return PopScope(
-      canPop: !_dirty,
+      canPop: _popping || !_dirty,
       onPopInvokedWithResult: (didPop, result) async {
         if (didPop) {
           return;
@@ -273,6 +295,7 @@ class _RoutineEditorScreenState extends State<RoutineEditorScreen> {
                       hintText: 'Routine name',
                       border: InputBorder.none,
                     ),
+                    onChanged: (_) => setState(() {}),
                   ),
                   for (var i = 0; i < _exercises.length; i++) _exerciseCard(i),
                   Align(
@@ -343,8 +366,8 @@ class _RoutineEditorScreenState extends State<RoutineEditorScreen> {
                     isDense: true,
                   ),
                   onChanged: (value) {
-                    _dirty = true;
                     exercise.exerciseId = widget.store.matchExercise(value)?.id;
+                    setState(() {});
                   },
                 ),
               ),

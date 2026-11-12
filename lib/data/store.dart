@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 
 import '../models/training.dart';
@@ -57,9 +59,14 @@ class WeekBundle {
 }
 
 class Store extends ChangeNotifier {
-  Store({DateTime Function()? clock}) : _clock = clock ?? DateTime.now;
+  Store({DateTime Function()? clock, this.voiceNotesDir})
+    : _clock = clock ?? DateTime.now;
 
   final DateTime Function() _clock;
+
+  /// Folder of recorded notes. Tests pass a temporary directory. The phone
+  /// uses Documents/voice_notes.
+  final Directory? voiceNotesDir;
   final ValueNotifier<String?> pendingSlot = ValueNotifier(null);
 
   Database? _db;
@@ -132,6 +139,7 @@ class Store extends ChangeNotifier {
     notificationsDenied =
         (await _setting('notifications_denied') ?? '0') == '1';
     activeWorkout = _workoutFromJson(await _setting('active_workout'));
+    await _sweepVoiceFiles();
     notifyListeners();
   }
 
@@ -1489,6 +1497,54 @@ class Store extends ChangeNotifier {
     return Zone.root.run(() => _track(_serial(() => _storeActive(null))));
   }
 
+  Future<void> _sweepVoiceFiles() async {
+    final Directory folder;
+    final injected = voiceNotesDir;
+    if (injected != null) {
+      folder = injected;
+    } else {
+      try {
+        final root = await getApplicationDocumentsDirectory();
+        folder = Directory(p.join(root.path, 'voice_notes'));
+      } on Object {
+        return;
+      }
+    }
+    if (!await folder.exists()) {
+      return;
+    }
+    final referenced = <String>{};
+    void keep(String? path) {
+      if (path == null || path.isEmpty) {
+        return;
+      }
+      referenced.add(path);
+      referenced.add(p.basename(path));
+    }
+
+    final rows = await db.query('voice_notes', columns: ['audio_path']);
+    for (final row in rows) {
+      keep(row['audio_path'] as String?);
+    }
+    for (final note in activeWorkout?.notes ?? const <VoiceNote>[]) {
+      keep(note.audioPath);
+    }
+    await for (final entity in folder.list()) {
+      if (entity is! File) {
+        continue;
+      }
+      final path = entity.path;
+      if (referenced.contains(path) || referenced.contains(p.basename(path))) {
+        continue;
+      }
+      try {
+        await entity.delete();
+      } on Object {
+        // A file already gone is fine.
+      }
+    }
+  }
+
   Future<void> _storeActive(String? raw) async {
     if (raw == null) {
       await db.delete(
@@ -1506,6 +1562,7 @@ class Store extends ChangeNotifier {
       return null;
     }
     return jsonEncode({
+      'v': 1,
       'routineId': workout.routineId,
       'name': workout.name,
       'startedAt': workout.startedAt.toIso8601String(),
@@ -1543,6 +1600,10 @@ class Store extends ChangeNotifier {
     try {
       final decoded = jsonDecode(raw);
       if (decoded is! Map) {
+        return null;
+      }
+      final version = decoded['v'];
+      if (version != null && version != 1) {
         return null;
       }
       final exercises = <ActiveExercise>[];
