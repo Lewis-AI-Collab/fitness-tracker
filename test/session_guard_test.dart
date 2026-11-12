@@ -52,6 +52,104 @@ void main() {
     expect(again.exercises, isNotEmpty);
   });
 
+  test('unreadable active workout keeps its file and the settings entry', () async {
+    final root = await Directory.systemTemp.createTemp('voice-garbage');
+    final notes = Directory('${root.path}/voice_notes')..createSync();
+    final dbDir = await Directory.systemTemp.createTemp('voice-garbage-db');
+    final path = '${dbDir.path}/fitness.db';
+    final store = Store(
+      clock: () => DateTime(2026, 10, 12, 9),
+      voiceNotesDir: notes,
+    );
+    await store.init(path: path);
+    final keep = File('${notes.path}/keep.m4a')..writeAsStringSync('keep');
+    final orphan = File('${notes.path}/orphan.m4a')..writeAsStringSync('gone');
+    final broken =
+        '{"startedAt":5,"notes":[{"audioPath":"${keep.path}"}]} leftover ${keep.path}';
+    await store.db.insert('settings', {
+      'key': 'active_workout',
+      'value': broken,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+    await store.db.close();
+
+    final again = Store(
+      clock: () => DateTime(2026, 10, 12, 10),
+      voiceNotesDir: notes,
+    );
+    await again.init(path: path);
+    expect(again.activeWorkout, isNull);
+    expect(again.exercises, isNotEmpty);
+    expect(keep.existsSync(), isTrue);
+    expect(orphan.existsSync(), isFalse);
+    final rows = await again.db.query(
+      'settings',
+      where: 'key = ?',
+      whereArgs: ['active_workout'],
+    );
+    expect(rows.single['value'], broken);
+  });
+
+  test('a newer active workout version keeps its file and the entry', () async {
+    final root = await Directory.systemTemp.createTemp('voice-v2');
+    final notes = Directory('${root.path}/voice_notes')..createSync();
+    final dbDir = await Directory.systemTemp.createTemp('voice-v2-db');
+    final path = '${dbDir.path}/fitness.db';
+    final store = Store(
+      clock: () => DateTime(2026, 10, 12, 9),
+      voiceNotesDir: notes,
+    );
+    await store.init(path: path);
+    final keep = File('${notes.path}/later.m4a')..writeAsStringSync('later');
+    final orphan = File('${notes.path}/orphan.m4a')..writeAsStringSync('gone');
+    final raw = jsonEncode({
+      'v': 2,
+      'name': 'Later',
+      'startedAt': '2026-10-12T09:00:00.000',
+      'notes': [
+        {'audioPath': keep.path, 'transcript': 'hold'},
+      ],
+    });
+    await store.db.insert('settings', {
+      'key': 'active_workout',
+      'value': raw,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+    await store.db.close();
+
+    final again = Store(
+      clock: () => DateTime(2026, 10, 12, 10),
+      voiceNotesDir: notes,
+    );
+    await again.init(path: path);
+    expect(again.activeWorkout, isNull);
+    expect(keep.existsSync(), isTrue);
+    expect(orphan.existsSync(), isFalse);
+    final rows = await again.db.query(
+      'settings',
+      where: 'key = ?',
+      whereArgs: ['active_workout'],
+    );
+    expect(rows.single['value'], raw);
+  });
+
+  test('an unreadable notes folder still lets the app open', () async {
+    final root = await Directory.systemTemp.createTemp('voice-locked');
+    final notes = Directory('${root.path}/voice_notes')..createSync();
+    final dbDir = await Directory.systemTemp.createTemp('voice-locked-db');
+    final path = '${dbDir.path}/fitness.db';
+    final store = Store(
+      clock: () => DateTime(2026, 10, 12, 9),
+      voiceNotesDir: notes,
+    );
+    try {
+      await Process.run('chmod', ['000', notes.path]);
+      await store.init(path: path);
+      expect(store.exercises, isNotEmpty);
+      expect(store.activeWorkout, isNull);
+    } finally {
+      await Process.run('chmod', ['755', notes.path]);
+    }
+  });
+
   test('startup deletes voice files nothing references', () async {
     final root = await Directory.systemTemp.createTemp('voice-sweep');
     final notes = Directory('${root.path}/voice_notes');
@@ -106,7 +204,16 @@ void main() {
     final navigator = tester.state<NavigatorState>(find.byType(Navigator).last);
     await navigator.maybePop();
     await tester.pump();
-    expect(find.byTooltip('Confirm'), findsOneWidget);
+    expect(find.text('Discard changes?'), findsOneWidget);
+    final discard = tester.widget<IconButton>(
+      find.descendant(
+        of: find.byTooltip('Discard'),
+        matching: find.byType(IconButton),
+      ),
+    );
+    expect((discard.icon as Icon).icon, Icons.delete_outline);
+    expect(find.byTooltip('Discard'), findsOneWidget);
+    expect(find.byTooltip('Confirm'), findsNothing);
     expect(find.byKey(const ValueKey('routine-name')), findsOneWidget);
     expect(find.text('Push'), findsWidgets);
   });

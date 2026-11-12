@@ -102,7 +102,7 @@ class _RoutineEditorScreenState extends State<RoutineEditorScreen> {
       Navigator.pop(context);
       return;
     }
-    final ok = await confirmChoice(context);
+    final ok = await confirmDiscard(context, title: 'Discard changes?');
     if (!ok || !mounted) {
       return;
     }

@@ -138,8 +138,13 @@ class Store extends ChangeNotifier {
     roundMinutes = int.tryParse(await _setting('round_minutes') ?? '') ?? 3;
     notificationsDenied =
         (await _setting('notifications_denied') ?? '0') == '1';
-    activeWorkout = _workoutFromJson(await _setting('active_workout'));
-    await _sweepVoiceFiles();
+    final rawActive = await _setting('active_workout');
+    activeWorkout = _workoutFromJson(rawActive);
+    try {
+      await _sweepVoiceFiles(rawActive);
+    } on Object {
+      // Listing the notes folder must not stop the app opening.
+    }
     notifyListeners();
   }
 
@@ -1497,7 +1502,7 @@ class Store extends ChangeNotifier {
     return Zone.root.run(() => _track(_serial(() => _storeActive(null))));
   }
 
-  Future<void> _sweepVoiceFiles() async {
+  Future<void> _sweepVoiceFiles(String? rawActive) async {
     final Directory folder;
     final injected = voiceNotesDir;
     if (injected != null) {
@@ -1528,6 +1533,10 @@ class Store extends ChangeNotifier {
     }
     for (final note in activeWorkout?.notes ?? const <VoiceNote>[]) {
       keep(note.audioPath);
+    }
+    // A value we cannot turn into a workout stays in settings. Its files stay too.
+    for (final path in _audioPathsInRaw(rawActive)) {
+      keep(path);
     }
     await for (final entity in folder.list()) {
       if (entity is! File) {
@@ -1593,6 +1602,78 @@ class Store extends ChangeNotifier {
     });
   }
 
+  /// Paths named in [raw], including JSON we refuse to restore. An unknown
+  /// version or broken value is left in settings, and these files are not swept.
+  Set<String> _audioPathsInRaw(String? raw) {
+    final found = <String>{};
+    if (raw == null || raw.isEmpty) {
+      return found;
+    }
+    void add(String? value) {
+      if (value != null && value.isNotEmpty) {
+        found.add(value);
+      }
+    }
+
+    final quoted = RegExp(r'"((?:\\.|[^"\\])*)"');
+    for (final match in quoted.allMatches(raw)) {
+      final value = _unescapeJson(match.group(1)!);
+      if (value.replaceAll('\\', '/').contains('voice_notes/')) {
+        add(value);
+      }
+    }
+    final named = RegExp(
+      r'''"(?:audioPath|audio_path)"\s*:\s*"((?:\\.|[^"\\])*)"''',
+    );
+    for (final match in named.allMatches(raw)) {
+      add(_unescapeJson(match.group(1)!));
+    }
+    final loose = RegExp(
+      r'''(?:^|[^\w./\\-])((?:[A-Za-z]:)?[^\s"'<>]*voice_notes[/\\][^\s"'<>]+)''',
+    );
+    for (final match in loose.allMatches(raw)) {
+      add(match.group(1));
+    }
+    try {
+      _walkAudio(jsonDecode(raw), add);
+    } on Object {
+      // Broken JSON only has the scan above.
+    }
+    return found;
+  }
+
+  String _unescapeJson(String value) {
+    try {
+      final decoded = jsonDecode('"$value"');
+      if (decoded is String) {
+        return decoded;
+      }
+    } on Object {
+      // Use the text as it was written.
+    }
+    return value;
+  }
+
+  void _walkAudio(Object? node, void Function(String?) add, [String? key]) {
+    if (node is String) {
+      if (key == 'audioPath' ||
+          key == 'audio_path' ||
+          node.replaceAll('\\', '/').contains('voice_notes/')) {
+        add(node);
+      }
+      return;
+    }
+    if (node is Map) {
+      for (final entry in node.entries) {
+        _walkAudio(entry.value, add, entry.key.toString());
+      }
+    } else if (node is List) {
+      for (final item in node) {
+        _walkAudio(item, add, key);
+      }
+    }
+  }
+
   ActiveWorkout? _workoutFromJson(String? raw) {
     if (raw == null || raw.isEmpty) {
       return null;
@@ -1603,6 +1684,7 @@ class Store extends ChangeNotifier {
         return null;
       }
       final version = decoded['v'];
+      // Unknown versions stay in settings and are not restored.
       if (version != null && version != 1) {
         return null;
       }
