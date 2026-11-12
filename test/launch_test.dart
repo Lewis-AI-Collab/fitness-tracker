@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:fitness_tracker/app.dart';
+import 'package:fitness_tracker/data/database.dart';
 import 'package:fitness_tracker/main.dart';
 import 'package:fitness_tracker/services/checkin_scheduler.dart';
 import 'package:flutter/material.dart';
@@ -31,7 +32,7 @@ void main() {
     final path = '${directory.path}/newer.db';
     final newer = await openDatabase(
       path,
-      version: 4,
+      version: fitnessSchemaVersion + 1,
       onCreate: (db, version) async {},
     );
     await newer.close();
@@ -66,13 +67,12 @@ void main() {
     final store = await tester.runAsync(openStore);
     await tester.runAsync(() => store!.setNotificationsDenied(true));
     await tester.pumpWidget(
-      FitnessApp(
-        store: store!,
-        scheduler: CheckInScheduler(_Deny()),
-      ),
+      FitnessApp(store: store!, scheduler: CheckInScheduler(_Deny())),
     );
     await tester.pump();
-    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 80)));
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 80)),
+    );
     await tester.pump();
     expect(find.byIcon(Icons.notifications_off), findsOneWidget);
     expect(find.byTooltip('Notifications'), findsOneWidget);

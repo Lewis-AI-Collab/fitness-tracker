@@ -1,6 +1,14 @@
 # Fitness Tracker
 
-A personal training log for the phone. Hold the microphone, say the session, confirm the card. The plan, the check-ins, the warnings, and next week's lift cards all stay on the device.
+A personal training log for the phone. Hold the microphone, say the session, confirm the card. Or build a routine and start it: tick the sets, rest, and leave a voice note on the exercise you are doing. The plan, the check-ins, the warnings, and next week's lift cards all stay on the device.
+
+## Workouts
+
+Today opens with **Start workout**. **Create routine** saves a named session: exercises, and for each one the sets, reps and kilograms. Add, edit, reorder and delete them on the phone, then start that routine again next week. Start workout with nothing selected begins an empty session. The session screen shows the current exercise, the sets to tick (reps and kilograms stay editable), the time so far, and Finish or Discard. Discard asks first and keeps nothing. Finish saves the ticked sets to history.
+
+The rest timer lives on that screen. It is labelled Rest, it starts when a set is ticked, and the time can be shortened or lengthened. It is not on the Today tab.
+
+Voice note records while the session is open and attaches the note to that session and the exercise on screen. Notes can be played and deleted, and they stay on the finished session. If the microphone is refused, the session stays open and says the microphone is off.
 
 There is no account, no cloud, and no analytics. The app does not make network calls.
 

@@ -96,6 +96,7 @@ class Session {
     this.rawTranscript,
     this.sets = const [],
     this.blocks = const [],
+    this.voiceNotes = const [],
   });
 
   final int id;
@@ -108,6 +109,27 @@ class Session {
   final String? rawTranscript;
   final List<SetRow> sets;
   final List<SessionBlock> blocks;
+  final List<VoiceNote> voiceNotes;
+}
+
+class VoiceNote {
+  const VoiceNote({
+    this.id = 0,
+    this.sessionId = 0,
+    this.exerciseId,
+    this.exerciseName,
+    this.transcript = '',
+    this.audioPath,
+    required this.createdAt,
+  });
+
+  final int id;
+  final int sessionId;
+  final int? exerciseId;
+  final String? exerciseName;
+  final String transcript;
+  final String? audioPath;
+  final String createdAt;
 }
 
 class PlanItem {

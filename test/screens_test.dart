@@ -49,7 +49,10 @@ void main() {
     expect(find.text('Bench press'), findsWidgets);
     expect(find.text('70 kg'), findsWidgets);
     expect(find.byKey(const ValueKey('set-reps')), findsWidgets);
-    expect(find.byTooltip('Rest'), findsOneWidget);
+    expect(find.byTooltip('Rest'), findsNothing);
+    expect(find.byKey(const ValueKey('rest-pill')), findsNothing);
+    expect(find.text('Start workout'), findsOneWidget);
+    expect(find.text('No routines yet'), findsOneWidget);
     expect(find.byKey(const ValueKey('share')), findsOneWidget);
     expect(find.byKey(const ValueKey('morning-status')), findsOneWidget);
     expect(find.byKey(const ValueKey('evening-status')), findsOneWidget);

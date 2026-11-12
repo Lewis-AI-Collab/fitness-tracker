@@ -8,6 +8,7 @@ import 'finish_sheet.dart';
 import 'icon_tip.dart';
 import 'pace_flag.dart';
 import 'value_picker.dart';
+import 'voice_note_list.dart';
 
 class SetLog extends StatelessWidget {
   const SetLog({
@@ -17,6 +18,8 @@ class SetLog extends StatelessWidget {
     this.store,
     this.onEdit,
     this.onDelete,
+    this.onPlayNote,
+    this.onDeleteNote,
   });
 
   final Session session;
@@ -24,12 +27,15 @@ class SetLog extends StatelessWidget {
   final Store? store;
   final VoidCallback? onEdit;
   final VoidCallback? onDelete;
+  final void Function(VoiceNote note)? onPlayNote;
+  final void Function(VoiceNote note)? onDeleteNote;
 
   @override
   Widget build(BuildContext context) {
     final logged = [
       for (final set in session.sets)
-        if (set.reps != null || set.weightKg != null || set.distanceKm != null) set,
+        if (set.reps != null || set.weightKg != null || set.distanceKm != null)
+          set,
     ];
     return Container(
       width: double.infinity,
@@ -73,7 +79,10 @@ class SetLog extends StatelessWidget {
               padding: const EdgeInsets.only(top: 8),
               child: Text(
                 sessionLine(session),
-                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             )
           else
@@ -85,6 +94,15 @@ class SetLog extends StatelessWidget {
                 '${block.label ?? _block(block.subtype)} · ${block.durationMin == null ? '?' : '${block.durationMin} min'} · RPE ${block.rpe}',
               ),
             ),
+          VoiceNoteList(
+            notes: session.voiceNotes,
+            onPlay: onPlayNote == null
+                ? null
+                : (index) => onPlayNote!(session.voiceNotes[index]),
+            onDelete: onDeleteNote == null
+                ? null
+                : (index) => onDeleteNote!(session.voiceNotes[index]),
+          ),
         ],
       ),
     );
